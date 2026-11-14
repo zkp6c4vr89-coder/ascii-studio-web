@@ -2,6 +2,10 @@ import { AsciiRenderer } from "./renderer.js";
 import { saveWallpaper, clearWallpaper } from "./wallpaper-store.js";
 
 const $ = (id) => document.getElementById(id);
+// Only Chromium can bend the backdrop through an SVG filter (true liquid glass).
+if (navigator.userAgentData && navigator.userAgentData.brands.some((b) => /Chromium/.test(b.brand))) {
+  document.documentElement.classList.add("liquid");
+}
 const stage = $("stage"), canvas = $("out"), status = $("status");
 const inExtension = /-extension:$/.test(location.protocol);
 let renderer;
@@ -355,11 +359,16 @@ if (inExtension) {
       await saveWallpaper(kind === "rain"
         ? { mode: "rain", settings }
         : { mode: "source", blob: currentFile, isVideo: kind === "video", settings });
+      try { localStorage.setItem("ascii-wallpaper", "custom"); } catch {}
       say("Done! Open a new tab to see it.");
     } catch (e) {
       say(`Couldn't save the wallpaper (${e.message}).`);
     }
   };
-  $("btn-wall-reset").onclick = async () => { await clearWallpaper(); say("New tabs show character rain again."); };
+  $("btn-wall-reset").onclick = async () => {
+    await clearWallpaper();
+    try { localStorage.removeItem("ascii-wallpaper"); } catch {}
+    say("New tabs show the built-in wallpapers again (pick one from the Wallpapers button).");
+  };
   $("btn-wall-open").onclick = () => chrome.tabs.create({});
 }

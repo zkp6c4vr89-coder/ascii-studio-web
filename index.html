@@ -16,6 +16,14 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <!-- Liquid glass: bends what's behind buttons (Chromium only; others get frosted glass) -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <filter id="liquid" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">
+      <feTurbulence type="fractalNoise" baseFrequency="0.008 0.012" numOctaves="2" seed="11" result="noise"/>
+      <feGaussianBlur in="noise" stdDeviation="2" result="map"/>
+      <feDisplacementMap in="SourceGraphic" in2="map" scale="22" xChannelSelector="R" yChannelSelector="G"/>
+    </filter>
+  </svg>
   <header class="topbar">
     <img class="logo" src="brand/icon-128.png" alt="" width="40" height="40">
     <div class="brand">
@@ -130,9 +138,9 @@
           <button id="btn-wall" class="btn primary wide">Set as new-tab wallpaper</button>
           <div class="row buttons">
             <button id="btn-wall-open" class="btn">Open new tab</button>
-            <button id="btn-wall-reset" class="btn">Reset to rain</button>
+            <button id="btn-wall-reset" class="btn">Use built-ins</button>
           </div>
-          <p class="note">Every new tab shows this, animated, with a clock.</p>
+          <p class="note">Every new tab shows this, animated, with a clock. New tabs also have five interactive built-in wallpapers.</p>
         </div>
       </section>
 

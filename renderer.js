@@ -5,6 +5,7 @@
 
 const RAMP_CANDIDATES = " .`',:;~-+=*!ir1lcvxzjtfoeasun0{}[]<>?%$#&8B@QWM";
 const EDGE_CHARS = "|/-\\_";
+const EXTRA_CHARS = "()^VY";      // extra shapes the interactive scenes use
 const FONT = 'Menlo, "SF Mono", Consolas, "DejaVu Sans Mono", monospace';
 export const STYLES = ["colour", "matrix", "mono"];
 
@@ -64,7 +65,7 @@ uniform ivec2 uCell;
 uniform vec2 uOrigin;
 uniform float uEdgeBase, uContrast, uGamma, uSat, uEdgeT, uJitter, uTime, uPeriod, uFps;
 const float TAU = 6.2831853;
-uniform int uStyle, uEdges;
+uniform int uStyle, uEdges, uDirect;
 float L(ivec2 c) {
   c = clamp(c, ivec2(0), uGridSize - 1);
   float l = dot(texelFetch(uGridTex, c, 0).rgb, vec3(0.299, 0.587, 0.114));
@@ -75,6 +76,22 @@ void main() {
   ivec2 c = p / uCell;
   if (p.x < 0 || p.y < 0 || c.x >= uGridSize.x || c.y >= uGridSize.y) { o = vec4(0, 0, 0, 1); return; }
   ivec2 local = p - c * uCell;
+  if (uDirect == 1) {
+    // Direct mode (interactive scenes): rgb = colour, alpha = character index,
+    // or 255 = "pick a character by brightness". Rows are stored top first.
+    vec4 d = texelFetch(uGridTex, ivec2(c.x, uGridSize.y - 1 - c.y), 0);
+    float code = floor(d.a * 255.0 + 0.5);
+    vec3 col = d.rgb;
+    float di = code;
+    if (code > 254.5) {
+      float lb = max(col.r, max(col.g, col.b));
+      di = floor(texture(uLut, vec2((lb * 255.0 + 0.5) / 256.0, 0.5)).r * 255.0 + 0.5);
+      col = col / max(lb, 1e-3) * (0.3 + 0.7 * lb);
+    }
+    float dm = texelFetch(uAtlas, ivec2(int(di) * uCell.x + local.x, uCell.y - 1 - local.y), 0).r;
+    o = vec4(dm * col, 1);
+    return;
+  }
   vec3 s = texelFetch(uGridTex, c, 0).rgb;
   float l = L(c);
   float h = hash(vec2(c));
@@ -248,7 +265,9 @@ export class AsciiRenderer {
     };
     const sorted = uniq.map((k, i) => [k, inkOf(i)]).sort((a, b) => a[1] - b[1]);
     this.ramp = sorted.map((s) => s[0]).join("");
-    this.chars = this.ramp + EDGE_CHARS;
+    this.chars = this.ramp + EDGE_CHARS + [...EXTRA_CHARS].filter((k) => !this.ramp.includes(k)).join("");
+    this.charIndex = {};
+    [...this.chars].forEach((k, i) => { if (!(k in this.charIndex)) this.charIndex[k] = i; });
     const lo = sorted[0][1], hi = sorted[sorted.length - 1][1];
     const ink = sorted.map((s) => (s[1] - lo) / Math.max(hi - lo, 1e-6));
     this.lut = new Uint8Array(256);
@@ -279,18 +298,33 @@ export class AsciiRenderer {
     if (this.canvas.width !== w || this.canvas.height !== h) { this.canvas.width = w; this.canvas.height = h; }
   }
 
+  // Character grid that fits the canvas right now, and a char -> index map for direct mode.
+  gridSize() {
+    this._buildAtlas();
+    return [Math.max(1, Math.floor(this.canvas.width / this.cellW)), Math.max(1, Math.floor(this.canvas.height / this.cellH))];
+  }
+  charMap() { this._buildAtlas(); return this.charIndex; }
+
+  // Draw a grid supplied by the caller: Uint8Array of cols*rows*4, rows top first,
+  // rgb = colour, a = character index (or 255 = choose a character by brightness).
+  renderDirect(buf, timeSec = performance.now() / 1000) {
+    this._directBuf = buf;
+    try { return this.render(timeSec); } finally { this._directBuf = null; }
+  }
+
   render(timeSec = performance.now() / 1000) {
     const gl = this.gl, s = this.settings;
     const W = this.canvas.width, H = this.canvas.height;
     this._buildAtlas();
     const cw = this.cellW, ch = this.cellH;
     const cols = Math.max(1, Math.floor(W / cw)), rows = Math.max(1, Math.floor(H / ch));
-    const rain = s.mode === "rain";
+    const direct = this._directBuf;
+    const rain = s.mode === "rain" && !direct;
     gl.bindVertexArray(this.vao);
 
     // upload the current frame
     let xform = [1, 1, 0, 0];
-    if (!rain) {
+    if (!rain && !direct) {
       const size = this.sourceSize();
       if (!size) return false;
       gl.bindTexture(gl.TEXTURE_2D, this.srcTex);
@@ -310,18 +344,27 @@ export class AsciiRenderer {
 
     // 1. grid pass
     const grid = this._target("grid", cols, rows, gl.NEAREST);
-    let P = this.progs.grid;
-    gl.useProgram(P.p);
-    gl.bindFramebuffer(gl.FRAMEBUFFER, grid.fbo);
-    gl.viewport(0, 0, cols, rows);
-    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.srcTex);
-    gl.uniform1i(P.loc.uSrc, 0);
-    gl.uniform2f(P.loc.uGrid, cols, rows);
-    gl.uniform4f(P.loc.uXform, ...xform);
-    gl.uniform1i(P.loc.uMode, rain ? 1 : 0);
-    gl.uniform1f(P.loc.uTime, timeSec);
-    gl.uniform1f(P.loc.uPeriod, s.period);
-    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    let P;
+    if (direct) {
+      if (direct.length !== cols * rows * 4) return false;   // grid changed size; caller re-sizes
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, grid.tex);
+      gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, cols, rows, gl.RGBA, gl.UNSIGNED_BYTE, direct);
+    } else {
+      P = this.progs.grid;
+      gl.useProgram(P.p);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, grid.fbo);
+      gl.viewport(0, 0, cols, rows);
+      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.srcTex);
+      gl.uniform1i(P.loc.uSrc, 0);
+      gl.uniform2f(P.loc.uGrid, cols, rows);
+      gl.uniform4f(P.loc.uXform, ...xform);
+      gl.uniform1i(P.loc.uMode, rain ? 1 : 0);
+      gl.uniform1f(P.loc.uTime, timeSec);
+      gl.uniform1f(P.loc.uPeriod, s.period);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+    }
     this.lastGrid = { cols, rows };
 
     // 2. glyph pass
@@ -349,6 +392,7 @@ export class AsciiRenderer {
     gl.uniform1f(P.loc.uFps, s.fps);
     gl.uniform1i(P.loc.uStyle, STYLES.indexOf(s.style));
     gl.uniform1i(P.loc.uEdges, s.edges && !rain ? 1 : 0);
+    gl.uniform1i(P.loc.uDirect, direct ? 1 : 0);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     if (!glow) return true;
 

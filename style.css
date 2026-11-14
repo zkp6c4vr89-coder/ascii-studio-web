@@ -210,76 +210,123 @@ h2 {
 }
 
 .row { display: flex; gap: 8px; }
-.row.buttons > .btn { flex: 1; }
+.row.buttons > .btn { flex: 1 1 auto; white-space: nowrap; padding-inline: 12px; }
 
-/* ---------- buttons: feedback on press ---------- */
+/* ---------- liquid glass controls ----------
+   No colour gradients: clear glass that blurs, saturates and (in Chromium) bends whatever
+   is behind it, a bright specular edge where light catches the top, a soft sheen, and a
+   shadow that lifts it off the surface. Tinted glass marks the main action. */
+:root {
+  --glass: rgba(255, 255, 255, 0.5);
+  --glass-hover: rgba(255, 255, 255, 0.68);
+  --glass-edge: rgba(255, 255, 255, 0.95);
+  --glass-rim: rgba(0, 0, 0, 0.06);
+  --glass-sheen: rgba(255, 255, 255, 0.55);
+  --glass-shadow: 0 6px 18px rgba(30, 20, 60, 0.12), 0 1px 2px rgba(30, 20, 60, 0.1);
+  --well: rgba(118, 118, 128, 0.14);
+  --tint: 88%;          /* light mode needs a deeper tint so white text stays readable */
+  --well-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.1), inset 0 0 0 0.5px rgba(0, 0, 0, 0.05);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --glass: rgba(255, 255, 255, 0.09);
+    --glass-hover: rgba(255, 255, 255, 0.15);
+    --glass-edge: rgba(255, 255, 255, 0.42);
+    --glass-rim: rgba(255, 255, 255, 0.1);
+    --glass-sheen: rgba(255, 255, 255, 0.16);
+    --glass-shadow: 0 8px 22px rgba(0, 0, 0, 0.35), 0 1px 3px rgba(0, 0, 0, 0.3);
+    --well: rgba(0, 0, 0, 0.28);
+    --tint: 62%;
+    --well-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.45), inset 0 -0.5px 0 rgba(255, 255, 255, 0.08);
+  }
+}
+
+.btn, .seg-thumb {
+  position: relative;
+  isolation: isolate;
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(12px) saturate(190%) brightness(1.06);
+  backdrop-filter: blur(12px) saturate(190%) brightness(1.06);
+  box-shadow:
+    inset 0 1px 0.5px var(--glass-edge),          /* light catching the top edge */
+    inset 0 -1px 0.5px var(--glass-rim),          /* the lower rim */
+    inset 0 0 0 0.5px var(--glass-rim),
+    var(--glass-shadow);
+}
+.liquid .btn, .liquid .seg-thumb {
+  -webkit-backdrop-filter: url(#liquid) blur(10px) saturate(190%) brightness(1.06);
+  backdrop-filter: url(#liquid) blur(10px) saturate(190%) brightness(1.06);
+}
+.btn::before, .seg-thumb::before {                /* soft sheen, like a curved surface */
+  content: "";
+  position: absolute; inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: -1;
+  background: radial-gradient(130% 100% at 30% 0%, var(--glass-sheen), transparent 60%);
+}
+
 .btn {
   appearance: none;
   font: 590 14px/1.2 var(--font);
   letter-spacing: -0.01em;
   color: var(--text);
-  background: var(--fill);
   border: 0;
-  border-radius: var(--radius-sm);
-  padding: 10px 12px;
+  border-radius: 999px;
+  padding: 10px 14px;
   min-height: 40px;
   cursor: pointer;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
-  transition: transform 100ms ease-out, background-color 150ms ease-out, opacity 150ms;
+  transition: transform 140ms cubic-bezier(0.3, 1.4, 0.5, 1), background-color 150ms ease-out;
 }
-.btn:hover { background: var(--fill-strong); }
-.btn:active { transform: scale(0.97); }
+.btn:hover { background: var(--glass-hover); }
+.btn:active { transform: scale(0.96); }         /* a little squish, instantly */
 .btn:focus-visible, .seg button:focus-visible, select:focus-visible, input:focus-visible {
   outline: 2px solid var(--accent); outline-offset: 2px;
 }
 .btn.wide { width: 100%; }
-.btn.primary {
-  color: #fff;
-  background: var(--brand-grad);
-  box-shadow: 0 6px 18px rgba(255, 106, 85, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.25);
-  font-weight: 650;
-}
-.btn.primary:hover { filter: brightness(1.06); }
-.btn.active { color: #fff; background: var(--accent); }
+/* tinted glass for the main action, still see-through */
+.btn.primary { color: #fff; font-weight: 650; background: color-mix(in srgb, var(--accent) var(--tint), transparent); }
+.btn.primary:hover { background: color-mix(in srgb, var(--accent) calc(var(--tint) + 10%), transparent); }
+.btn.active { color: #fff; background: color-mix(in srgb, var(--accent) 62%, transparent); }
 .rec-btn { color: var(--rec); font-weight: 650; }
-.rec-btn.recording { color: #fff; background: var(--rec); }
+.rec-btn.recording { color: #fff; background: color-mix(in srgb, var(--rec) 70%, transparent); }
 
-/* ---------- segmented control with a sliding thumb ---------- */
+/* ---------- segmented control: a glass pill sliding in a recessed well ---------- */
 .seg {
   --n: 3; --i: 0;
   position: relative;
   display: grid;
   grid-template-columns: repeat(var(--n), 1fr);
   padding: 3px;
-  border-radius: 11px;
-  background: var(--fill);
+  border-radius: 999px;
+  background: var(--well);
+  box-shadow: var(--well-shadow);
 }
 .seg-thumb {
   position: absolute; top: 3px; bottom: 3px; left: 3px;
   width: calc((100% - 6px) / var(--n));
-  border-radius: 8px;
-  background: var(--thumb);
-  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.12), 0 0 0 0.5px rgba(0, 0, 0, 0.04);
+  border-radius: 999px;
   transform: translateX(calc(var(--i) * 100%));
-  transition: transform 320ms var(--ease);
+  transition: transform 380ms cubic-bezier(0.3, 1.25, 0.5, 1);   /* settles with a hint of give */
 }
-@media (prefers-color-scheme: dark) { .seg-thumb { background: #636270; } }
 .seg button {
   position: relative;
   appearance: none; border: 0; background: none;
   font: 590 13px/1.2 var(--font);
   letter-spacing: -0.005em;
-  color: var(--text);
+  color: var(--text-2);
   padding: 8px 4px;
   cursor: pointer;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
-  transition: transform 100ms ease-out;
+  transition: color 200ms, transform 120ms ease-out;
 }
+.seg button.on { color: var(--text); }
 .seg button:active { transform: scale(0.95); }
 
-/* ---------- sliders ---------- */
+/* ---------- sliders: a recessed track and a glass capsule ---------- */
 .slider { display: block; font-size: 14px; color: var(--text-2); }
 .slider output {
   float: right;
@@ -289,32 +336,43 @@ h2 {
 }
 input[type="range"] {
   -webkit-appearance: none; appearance: none;
-  width: 100%; height: 28px; margin: 2px 0 0;
+  width: 100%; height: 30px; margin: 2px 0 0;
   background: transparent;
   touch-action: pan-y;
   --p: 50%;
 }
 input[type="range"]::-webkit-slider-runnable-track {
-  height: 4px; border-radius: 2px;
-  background: linear-gradient(90deg, var(--brand-3) 0 var(--p), var(--fill-strong) var(--p) 100%);
+  height: 6px; border-radius: 3px;
+  background: linear-gradient(90deg, var(--accent) 0 var(--p), var(--well) var(--p) 100%);
+  box-shadow: var(--well-shadow);
 }
-input[type="range"]::-moz-range-track { height: 4px; border-radius: 2px; background: var(--fill-strong); }
-input[type="range"]::-moz-range-progress { height: 4px; border-radius: 2px; background: var(--brand-3); }
+input[type="range"]::-moz-range-track { height: 6px; border-radius: 3px; background: var(--well); box-shadow: var(--well-shadow); }
+input[type="range"]::-moz-range-progress { height: 6px; border-radius: 3px; background: var(--accent); }
 input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
-  width: 24px; height: 24px; margin-top: -10px;
-  border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25), 0 0 0 0.5px rgba(0, 0, 0, 0.06);
-  transition: transform 100ms ease-out;
+  width: 38px; height: 24px; margin-top: -9px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow:
+    inset 0 1px 0.5px rgba(255, 255, 255, 1),
+    inset 0 -1px 1px rgba(0, 0, 0, 0.08),
+    inset 0 0 0 0.5px rgba(0, 0, 0, 0.06),
+    0 3px 10px rgba(0, 0, 0, 0.22), 0 1px 2px rgba(0, 0, 0, 0.18);
+  transition: transform 160ms cubic-bezier(0.3, 1.4, 0.5, 1), background-color 160ms;
 }
-input[type="range"]:active::-webkit-slider-thumb { transform: scale(1.12); }
+/* while dragging, the capsule swells and turns to clear glass */
+input[type="range"]:active::-webkit-slider-thumb {
+  transform: scale(1.18);
+  background: rgba(255, 255, 255, 0.32);
+}
 input[type="range"]::-moz-range-thumb {
-  width: 24px; height: 24px; border: 0; border-radius: 50%;
-  background: #fff; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+  width: 38px; height: 24px; border: 0; border-radius: 999px;
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: inset 0 1px 0.5px #fff, 0 3px 10px rgba(0, 0, 0, 0.22);
 }
+input[type="range"]:active::-moz-range-thumb { background: rgba(255, 255, 255, 0.32); }
 
-/* ---------- switches ---------- */
+/* ---------- switches: a glass capsule on a track ---------- */
 .switch-row {
   display: flex; align-items: center; justify-content: space-between;
   font-size: 15px; color: var(--text);
@@ -323,23 +381,25 @@ input[type="range"]::-moz-range-thumb {
 .switch {
   -webkit-appearance: none; appearance: none;
   position: relative;
-  width: 51px; height: 31px; margin: 0;
+  width: 62px; height: 28px; margin: 0;
   border-radius: 999px;
-  background: var(--fill-strong);
+  background: var(--well);
+  box-shadow: var(--well-shadow);
   cursor: pointer;
-  transition: background-color 200ms var(--ease);
+  transition: background-color 220ms ease-out;
 }
 .switch::after {
   content: "";
   position: absolute; top: 2px; left: 2px;
-  width: 27px; height: 27px;
-  border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.15), 0 1px 1px rgba(0, 0, 0, 0.16);
-  transition: transform 260ms var(--ease);
+  width: 36px; height: 24px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: inset 0 1px 0.5px #fff, inset 0 -1px 1px rgba(0, 0, 0, 0.08), 0 3px 8px rgba(0, 0, 0, 0.22);
+  transition: transform 300ms cubic-bezier(0.3, 1.3, 0.5, 1), background-color 160ms, width 160ms;
 }
 .switch:checked { background: #34c759; }
-.switch:checked::after { transform: translateX(20px); }
+.switch:checked::after { transform: translateX(22px); }
+.switch:active::after { background: rgba(255, 255, 255, 0.4); }
 
 /* ---------- fields ---------- */
 .field { display: grid; gap: 6px; font-size: 14px; color: var(--text-2); }
@@ -416,9 +476,12 @@ select, input[type="number"] {
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition-duration: 1ms !important; }
   .btn:active, .seg button:active { transform: none; }
+  input[type="range"]:active::-webkit-slider-thumb { transform: none; }
 }
 @media (prefers-reduced-transparency: reduce) {
-  .panel, .topbar, .status, .rec-pill { background: var(--material-solid); -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .panel, .topbar, .status, .rec-pill, .btn, .seg-thumb, .liquid .btn, .liquid .seg-thumb {
+    background: var(--material-solid); -webkit-backdrop-filter: none; backdrop-filter: none;
+  }
 }
 @media (prefers-contrast: more) {
   .card, .btn, .seg, select, input[type="number"] { box-shadow: inset 0 0 0 1px var(--text-3); }
