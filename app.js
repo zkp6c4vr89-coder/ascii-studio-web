@@ -353,32 +353,67 @@ $("btn-video").onclick = () => {
   say(kind === "image" && S.shimmer === 0 ? "Recording… (raise Shimmer so the photo moves)" : "Recording…");
 };
 
-// ---------- browser wallpaper (extension only) ----------
+// ---------- wallpapers: browser extension (new tab) and desktop app ----------
+const look = () => {
+  const { style, cell, contrast, gamma, saturation, edges, edgeThreshold, glow, shimmer, fps, period, mirror } = S;
+  return { style, cell, contrast, gamma, saturation, edges, edgeThreshold, glow, shimmer, fps, period, mirror };
+};
+// Save the current picture + look so a wallpaper page (new tab / desktop) can show it.
+async function storePicture() {
+  if (needSource()) return false;
+  if (kind === "webcam") { say("The camera can't be a wallpaper. Use a photo, video or Rain."); return false; }
+  const settings = look();
+  if (kind === "image" && settings.shimmer === 0) settings.shimmer = 0.5;   // photos need a little life
+  try {
+    await saveWallpaper(kind === "rain"
+      ? { mode: "rain", settings }
+      : { mode: "source", blob: currentFile, isVideo: kind === "video", settings });
+    try { localStorage.setItem("ascii-wallpaper", kind === "rain" ? "rain" : "custom"); } catch {}
+    return true;
+  } catch (e) {
+    say(`Couldn't save the wallpaper (${e.message}).`);
+    return false;
+  }
+}
+
 if (inExtension) {
   $("wallpaper-group").hidden = false;
-  const look = () => {
-    const { style, cell, contrast, gamma, saturation, edges, edgeThreshold, glow, shimmer, fps, period, mirror } = S;
-    return { style, cell, contrast, gamma, saturation, edges, edgeThreshold, glow, shimmer, fps, period, mirror };
-  };
-  $("btn-wall").onclick = async () => {
-    if (needSource()) return;
-    if (kind === "webcam") { say("The webcam can't be a wallpaper. Use a photo, video or Rain."); return; }
-    const settings = look();
-    if (kind === "image" && settings.shimmer === 0) settings.shimmer = 0.5;   // photos need a little life
-    try {
-      await saveWallpaper(kind === "rain"
-        ? { mode: "rain", settings }
-        : { mode: "source", blob: currentFile, isVideo: kind === "video", settings });
-      try { localStorage.setItem("ascii-wallpaper", "custom"); } catch {}
-      say("Done! Open a new tab to see it.");
-    } catch (e) {
-      say(`Couldn't save the wallpaper (${e.message}).`);
-    }
-  };
+  $("btn-wall").onclick = async () => { if (await storePicture()) say("Done! Open a new tab to see it."); };
   $("btn-wall-reset").onclick = async () => {
     await clearWallpaper();
     try { localStorage.removeItem("ascii-wallpaper"); } catch {}
     say("New tabs show the built-in wallpapers again (pick one from the Wallpapers button).");
   };
   $("btn-wall-open").onclick = () => chrome.tabs.create({});
+}
+
+// The desktop app (Electron) exposes window.asciiDesktop through its preload script.
+const desk = window.asciiDesktop;
+if (desk) {
+  $("desktop-group").hidden = false;
+  desk.capabilities().then((caps) => {
+    if (!caps.liveWallpaper) {
+      $("btn-desk-live").hidden = true;
+      $("desk-note").textContent = "Live wallpapers aren't available on this system; the still image works everywhere.";
+    }
+  });
+  // Still wallpaper: render once at the screen's full resolution, hand the PNG to the app.
+  $("btn-desk-still").onclick = async () => {
+    if (needSource()) return;
+    const sel = $("size"), prev = sel.value;
+    sel.value = "screen";
+    const [w, h] = outputSize();
+    renderer.resize(w, h);
+    renderer.render(0);
+    const blob = await new Promise((r) => canvas.toBlob(r, "image/png"));
+    sel.value = prev;
+    lastTick = -1;
+    const res = await desk.setStillWallpaper(await blob.arrayBuffer());
+    say(res.ok ? "Desktop wallpaper set." : `Couldn't set the wallpaper (${res.error}).`);
+  };
+  $("btn-desk-live").onclick = async () => {
+    if (!(await storePicture())) return;
+    const res = await desk.setLiveWallpaper("custom");
+    say(res.ok ? "Live wallpaper on. Change or stop it from the menu-bar icon." : res.error);
+  };
 }
