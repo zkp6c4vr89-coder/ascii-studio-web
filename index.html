@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ASCII Studio</title>
+  <meta name="description" content="Turn photos, videos and your webcam into ASCII art, right in your browser.">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>ASCII<span>/</span>Studio</h1>
+    <p>Photos, videos and webcam → ASCII art. Everything stays on your device.</p>
+  </header>
+
+  <main>
+    <section id="stage" class="stage empty">
+      <canvas id="out"></canvas>
+      <label id="drop" class="drop">
+        <input id="file" type="file" accept="image/*,video/*" hidden>
+        <strong>Drop a photo or video here</strong>
+        <span>or click to choose one, or use the buttons on the right</span>
+      </label>
+      <div id="rec" class="rec" hidden>● REC</div>
+    </section>
+
+    <aside class="panel">
+      <div class="group">
+        <h2>Source</h2>
+        <div class="row">
+          <button id="btn-open">Open file</button>
+          <button id="btn-cam">Webcam</button>
+          <button id="btn-rain">Rain</button>
+        </div>
+      </div>
+
+      <div class="group">
+        <h2>Style</h2>
+        <div class="seg" id="style">
+          <button data-v="colour" class="on">Colour</button>
+          <button data-v="matrix">Matrix</button>
+          <button data-v="mono">Mono</button>
+        </div>
+      </div>
+
+      <div class="group">
+        <h2>Tune</h2>
+        <label>Character size <output data-for="cell"></output>
+          <input type="range" id="cell" min="4" max="24" step="1" value="8"></label>
+        <label>Contrast <output data-for="contrast"></output>
+          <input type="range" id="contrast" min="0.5" max="2.5" step="0.05" value="1.25"></label>
+        <label>Edge strokes <output data-for="edgeThreshold"></output>
+          <input type="range" id="edgeThreshold" min="0.15" max="1.2" step="0.05" value="0.45"></label>
+        <label>Glow <output data-for="glow"></output>
+          <input type="range" id="glow" min="0" max="1.2" step="0.05" value="0.45"></label>
+        <label>Shimmer <output data-for="shimmer"></output>
+          <input type="range" id="shimmer" min="0" max="1" step="0.05" value="0"></label>
+        <label>Character speed <output data-for="fps"></output>
+          <input type="range" id="fps" min="1" max="30" step="1" value="24"></label>
+        <div class="row checks">
+          <label class="check"><input type="checkbox" id="edges" checked> Edges</label>
+          <label class="check"><input type="checkbox" id="mirror"> Mirror</label>
+        </div>
+      </div>
+
+      <div class="group">
+        <h2>Output size</h2>
+        <select id="size">
+          <option value="source">Match source (up to 1920 px)</option>
+          <option value="720">HD 720p</option>
+          <option value="1080">Full HD 1080p</option>
+          <option value="2160">4K</option>
+          <option value="screen">Wallpaper: fill my screen</option>
+        </select>
+        <p class="hint" id="size-hint"></p>
+      </div>
+
+      <div class="group">
+        <h2>Record a loop</h2>
+        <div class="seg" id="dur">
+          <button data-v="5">5s</button>
+          <button data-v="10" class="on">10s</button>
+          <button data-v="15">15s</button>
+          <button data-v="custom">Custom</button>
+        </div>
+        <label id="custom-wrap" hidden>Length in seconds
+          <input type="number" id="custom-dur" min="1" max="120" step="1" value="20"></label>
+        <div class="row" style="margin-top:8px">
+          <button id="btn-video" class="rec-btn">● Record 10s</button>
+        </div>
+        <p class="hint">Animations repeat exactly every loop, so the video loops seamlessly.</p>
+      </div>
+
+      <div class="group">
+        <h2>Export</h2>
+        <div class="row">
+          <button id="btn-png" class="primary">Save PNG</button>
+          <button id="btn-copy">Copy text</button>
+          <button id="btn-txt">Save .txt</button>
+        </div>
+        <p class="hint" id="status"></p>
+      </div>
+
+      <div class="group" id="wallpaper-group" hidden>
+        <h2>Browser wallpaper</h2>
+        <div class="row">
+          <button id="btn-wall" class="primary">Set as new-tab wallpaper</button>
+        </div>
+        <div class="row">
+          <button id="btn-wall-open">Open a new tab</button>
+          <button id="btn-wall-reset">Reset to rain</button>
+        </div>
+        <p class="hint">Every new tab shows this picture, animated, with the look you chose here.</p>
+      </div>
+    </aside>
+  </main>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

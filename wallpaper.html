@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ASCII Wallpaper</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+    canvas { display: block; width: 100vw; height: 100vh; }
+  </style>
+</head>
+<body>
+  <canvas id="out"></canvas>
+  <!--
+    Fullscreen, no UI. Used by desktop/ascii_wallpaper.py (and works in Plash too).
+    URL options:
+      src=<url of a photo or video>   (leave out for character rain)
+      style=colour|matrix|mono   cell=<char width in CSS px>   glow=0..1.2
+      shimmer=0..1   contrast=0.5..2.5   edges=0|1   fps=1..60
+  -->
+  <script type="module">
+    import { AsciiRenderer } from "./renderer.js";
+
+    const q = new URLSearchParams(location.search);
+    const num = (k, d) => (q.has(k) ? parseFloat(q.get(k)) : d);
+    const canvas = document.getElementById("out");
+    const r = new AsciiRenderer(canvas);
+    const S = r.settings;
+    const dpr = window.devicePixelRatio || 1;
+    const src = q.get("src");
+    const isVideo = src && /\.(mp4|mov|m4v|webm|gif)$/i.test(src);
+
+    S.style = q.get("style") || (src ? "colour" : "matrix");
+    S.cell = num("cell", 7) * dpr;
+    S.glow = num("glow", 0.5);
+    S.contrast = num("contrast", 1.25);
+    S.edges = q.get("edges") !== "0";
+    S.shimmer = num("shimmer", src && !isVideo ? 0.6 : 0);   // photos gently come alive
+    let fps = num("fps", 30), paused = false, last = 0;
+
+    if (!src) {
+      S.mode = "rain";
+    } else if (isVideo) {
+      const v = Object.assign(document.createElement("video"),
+        { src, loop: true, muted: true, playsInline: true, autoplay: true });
+      v.play().catch(() => {});
+      v.addEventListener("loadeddata", () => r.setSource(v));
+    } else {
+      const img = new Image();
+      img.onload = () => r.setSource(img);
+      img.src = src;
+    }
+
+    function loop(t) {
+      requestAnimationFrame(loop);
+      if (paused || t - last < 1000 / fps - 2) return;
+      last = t;
+      r.resize(Math.round(innerWidth * dpr), Math.round(innerHeight * dpr));
+      r.render(t / 1000);
+    }
+    requestAnimationFrame(loop);
+
+    // controls for the menu-bar app
+    window.wallpaper = {
+      toggle() { paused = !paused; return paused; },
+      setFps(n) { fps = n; },
+    };
+  </script>
+</body>
+</html>
