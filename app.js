@@ -8,11 +8,20 @@ if (navigator.userAgentData && navigator.userAgentData.brands.some((b) => /Chrom
 }
 const stage = $("stage"), canvas = $("out"), status = $("status");
 const inExtension = /-extension:$/.test(location.protocol);
+// Replace the drop-zone message. Text only (textContent), never HTML, so nothing from a
+// URL or an error message can ever be interpreted as markup.
+function setDrop(title, detail, button) {
+  const drop = $("drop");
+  const strong = Object.assign(document.createElement("strong"), { textContent: title });
+  const span = Object.assign(document.createElement("span"), { textContent: detail });
+  drop.replaceChildren(strong, span, ...(button ? [button] : []));
+}
+
 let renderer;
 try {
   renderer = new AsciiRenderer(canvas);
 } catch (e) {
-  $("drop").innerHTML = `<strong>Sorry, this browser can't run ASCII Studio</strong><span>${e.message}</span>`;
+  setDrop("Sorry, this browser can't run ASCII Studio", e.message);
   throw e;
 }
 const S = renderer.settings;
@@ -139,10 +148,12 @@ async function loadFromUrl(src, isVideo) {
     try { origin = new URL(src).origin; } catch {}
     if (perms && origin && origin.startsWith("http")) {
       // The site doesn't share its files with other pages; ask once for access to just this site.
-      $("drop").innerHTML = `<strong>One click to load this ${isVideo ? "video" : "image"}</strong>
-        <span>ASCII Studio needs permission to read files from ${origin}</span>
-        <button id="btn-allow" class="primary">Allow ${new URL(src).host}</button>`;
-      $("btn-allow").onclick = async (e) => {
+      const allow = Object.assign(document.createElement("button"), {
+        className: "btn primary", textContent: `Allow ${new URL(src).host}`,
+      });
+      setDrop(`One click to load this ${isVideo ? "video" : "image"}`,
+        `ASCII Studio needs permission to read files from ${origin}`, allow);
+      allow.onclick = async (e) => {
         e.preventDefault();
         if (await perms.request({ origins: [`${origin}/*`] })) loadFromUrl(src, isVideo);
       };
@@ -252,12 +263,11 @@ requestAnimationFrame(frame);
 
 // ---------- export ----------
 const stamp = () => new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
-const download = saveBlob;
 const needSource = () => { if (!kind) { say("Open a photo, video or webcam first."); return true; } return false; };
 
 $("btn-png").onclick = () => {
   if (needSource()) return;
-  canvas.toBlob((b) => download(b, `ascii-${stamp()}.png`), "image/png");
+  canvas.toBlob((b) => saveBlob(b, `ascii-${stamp()}.png`), "image/png");
 };
 $("btn-copy").onclick = async () => {
   if (needSource()) return;
@@ -270,7 +280,7 @@ $("btn-copy").onclick = async () => {
 };
 $("btn-txt").onclick = () => {
   if (needSource()) return;
-  download(new Blob([renderer.toText()], { type: "text/plain" }), `ascii-${stamp()}.txt`);
+  saveBlob(new Blob([renderer.toText()], { type: "text/plain" }), `ascii-${stamp()}.txt`);
 };
 
 $("btn-save-rec").onclick = () => {
