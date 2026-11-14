@@ -14,8 +14,31 @@ try {
 const S = renderer.settings;
 
 let video = null, stream = null, kind = null, objectUrl = null, currentFile = null;
-let recorder = null, recTimer = null;
-const say = (msg) => { status.textContent = msg; };
+let recorder = null, recTimer = null, facing = "user", lastRecording = null;
+const isTouch = matchMedia("(hover: none) and (pointer: coarse)").matches;
+
+// status messages appear as a toast, then fade away
+let toastTimer;
+const say = (msg) => {
+  clearTimeout(toastTimer);
+  status.textContent = msg;
+  status.classList.toggle("show", !!msg);
+  if (msg) toastTimer = setTimeout(() => status.classList.remove("show"), 4000);
+};
+
+// On phones, hand files to the share sheet (Save to Photos / Files); elsewhere, download.
+async function saveBlob(blob, name) {
+  const file = new File([blob], name, { type: blob.type });
+  if (isTouch && navigator.canShare && navigator.canShare({ files: [file] })) {
+    try { await navigator.share({ files: [file] }); return; }
+    catch (e) { if (e.name === "AbortError") return; }   // user closed the sheet
+  }
+  const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(blob), download: name });
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
 
 // ---------- sources ----------
 function stopCurrent() {
@@ -25,6 +48,7 @@ function stopCurrent() {
   if (objectUrl) URL.revokeObjectURL(objectUrl);
   stream = video = objectUrl = currentFile = null;
   $("btn-cam").classList.remove("active");
+  $("btn-flip").hidden = true;
   $("btn-rain").classList.remove("active");
 }
 
@@ -54,21 +78,34 @@ function loadFile(file, forceVideo = false) {
 
 async function startWebcam() {
   stopCurrent();
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    say("This browser can't use the camera here (it needs HTTPS).");
+    return;
+  }
   try {
-    stream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: facing, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false,
+    });
   } catch (e) {
-    say("Webcam blocked: allow camera access in the address bar, then try again.");
+    say("Camera blocked: allow camera access for this site, then try again.");
     return;
   }
   video = Object.assign(document.createElement("video"), { srcObject: stream, muted: true, playsInline: true });
+  video.setAttribute("playsinline", "");   // iOS: play inline, not fullscreen
   await video.play();
   kind = "webcam";
   S.mode = "source";
-  if (!$("mirror").checked) { $("mirror").checked = true; S.mirror = true; }
+  const selfie = facing === "user";
+  $("mirror").checked = selfie;
+  S.mirror = selfie;
   renderer.setSource(video);
   stage.classList.remove("empty");
   $("btn-cam").classList.add("active");
-  say("Webcam on.");
+  // offer front/back switching when the device has more than one camera
+  navigator.mediaDevices.enumerateDevices().then((d) => {
+    $("btn-flip").hidden = d.filter((x) => x.kind === "videoinput").length < 2;
+  });
+  say("Camera on.");
 }
 
 function startRain() {
@@ -85,6 +122,7 @@ function startRain() {
 // ---------- open a URL (?src=...), used by the browser extension's right-click menu ----------
 async function loadFromUrl(src, isVideo) {
   say("Loading…");
+  try { src = new URL(src, location.href).href; } catch {}   // allow relative links too
   try {
     const res = await fetch(src);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -118,6 +156,7 @@ if (params.get("src")) loadFromUrl(params.get("src"), params.get("type") === "vi
 $("btn-open").onclick = () => $("file").click();
 $("file").onchange = (e) => loadFile(e.target.files[0]);
 $("btn-cam").onclick = startWebcam;
+$("btn-flip").onclick = () => { facing = facing === "user" ? "environment" : "user"; startWebcam(); };
 $("btn-rain").onclick = startRain;
 stage.addEventListener("dragover", (e) => { e.preventDefault(); stage.classList.add("dragging"); });
 stage.addEventListener("dragleave", () => stage.classList.remove("dragging"));
@@ -128,15 +167,31 @@ stage.addEventListener("drop", (e) => {
 });
 
 // ---------- controls ----------
+// segmented controls: the thumb slides to the chosen option
 function setSeg(id, v) {
-  document.querySelectorAll(`#${id} button`).forEach((b) => b.classList.toggle("on", b.dataset.v === v));
+  const seg = $(id), buttons = [...seg.querySelectorAll("button")];
+  buttons.forEach((b) => {
+    const on = b.dataset.v === v;
+    b.classList.toggle("on", on);
+    b.setAttribute("aria-checked", on);
+  });
+  seg.style.setProperty("--n", buttons.length);
+  seg.style.setProperty("--i", Math.max(0, buttons.findIndex((b) => b.dataset.v === v)));
 }
-document.querySelectorAll("#style button").forEach((b) => (b.onclick = () => { S.style = b.dataset.v; setSeg("style", b.dataset.v); }));
+setSeg("style", "colour");
+// respond on press, not on release
+document.querySelectorAll("#style button").forEach((b) => (b.onpointerdown = b.onclick = () => { S.style = b.dataset.v; setSeg("style", b.dataset.v); }));
 
-const LABELS = { cell: (v) => `${v}px`, fps: (v) => `${v} / sec` };
+const LABELS = { cell: (v) => `${v} px`, fps: (v) => `${v}/s`, contrast: (v) => (+v).toFixed(2),
+  edgeThreshold: (v) => (+v).toFixed(2), glow: (v) => (+v).toFixed(2), shimmer: (v) => (+v).toFixed(2) };
 for (const id of ["cell", "contrast", "edgeThreshold", "glow", "shimmer", "fps"]) {
   const input = $(id), out = document.querySelector(`output[data-for="${id}"]`);
-  const sync = () => { S[id] = parseFloat(input.value); out.textContent = (LABELS[id] || String)(input.value); };
+  const sync = () => {
+    S[id] = parseFloat(input.value);
+    out.textContent = LABELS[id](input.value);
+    const p = ((input.value - input.min) / (input.max - input.min)) * 100;
+    input.style.setProperty("--p", `${p}%`);              // filled part of the track
+  };
   input.oninput = sync;
   sync();
 }
@@ -154,8 +209,9 @@ function syncDuration() {
   $("custom-wrap").hidden = document.querySelector("#dur button.on").dataset.v !== "custom";
   if (!recorder) $("btn-video").textContent = `● Record ${S.period}s`;
 }
-document.querySelectorAll("#dur button").forEach((b) => (b.onclick = () => { setSeg("dur", b.dataset.v); syncDuration(); }));
+document.querySelectorAll("#dur button").forEach((b) => (b.onpointerdown = b.onclick = () => { setSeg("dur", b.dataset.v); syncDuration(); }));
 $("custom-dur").oninput = syncDuration;
+setSeg("dur", "10");
 syncDuration();
 
 // ---------- output size ----------
@@ -167,7 +223,8 @@ function outputSize() {
   }
   const src = kind === "rain" ? [1920, 1080] : renderer.sourceSize() || [1280, 720];
   const aspect = src[0] / src[1];
-  const h = choice === "source" ? Math.min(src[1], Math.round(1920 / aspect), 1920) : parseInt(choice, 10);
+  const cap = isTouch ? 1280 : 1920;                 // keep phones fast and cool
+  const h = choice === "source" ? Math.min(src[1], Math.round(cap / aspect), cap) : parseInt(choice, 10);
   const w = Math.round(h * aspect);
   return [w - (w % 2), h - (h % 2)];
 }
@@ -191,11 +248,7 @@ requestAnimationFrame(frame);
 
 // ---------- export ----------
 const stamp = () => new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
-function download(blob, name) {
-  const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(blob), download: name });
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-}
+const download = saveBlob;
 const needSource = () => { if (!kind) { say("Open a photo, video or webcam first."); return true; } return false; };
 
 $("btn-png").onclick = () => {
@@ -216,6 +269,11 @@ $("btn-txt").onclick = () => {
   download(new Blob([renderer.toText()], { type: "text/plain" }), `ascii-${stamp()}.txt`);
 };
 
+$("btn-save-rec").onclick = () => {
+  if (!lastRecording) return;
+  saveBlob(lastRecording.blob, lastRecording.name);
+};
+
 // ---------- record a loop of a chosen length ----------
 function pickMime() {
   const options = ["video/mp4;codecs=avc1", "video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"];
@@ -225,6 +283,7 @@ function pickMime() {
 $("btn-video").onclick = () => {
   if (needSource()) return;
   if (recorder) { recorder.stop(); return; }          // stop early
+  $("btn-save-rec").hidden = true;
   const mime = pickMime();
   if (!mime) { say("This browser can't record video."); return; }
   const secs = S.period;
@@ -239,13 +298,22 @@ $("btn-video").onclick = () => {
   recorder.onstop = () => {
     clearInterval(recTimer);
     const ext = mime.startsWith("video/mp4") ? "mp4" : "webm";
-    download(new Blob(chunks, { type: mime.split(";")[0] }), `ascii-loop-${secs}s-${stamp()}.${ext}`);
+    const blob = new Blob(chunks, { type: mime.split(";")[0] });
+    const name = `ascii-loop-${secs}s-${stamp()}.${ext}`;
     recorder = null;
     if (video && kind === "video") video.muted = true;
     $("rec").hidden = true;
     $("btn-video").classList.remove("recording");
     syncDuration();
-    say(`Saved a ${secs}s loop (.${ext}).`);
+    if (isTouch) {
+      // phones only open the share sheet from a tap, so offer a button
+      lastRecording = { blob, name };
+      $("btn-save-rec").hidden = false;
+      say(`Your ${secs}s loop is ready. Tap Save video.`);
+    } else {
+      saveBlob(blob, name);
+      say(`Saved a ${secs}s loop (.${ext}).`);
+    }
   };
   // Start the countdown only once the recorder is really running, and restart the
   // animation clock then, so the clip is exactly one loop long and starts at its top.
