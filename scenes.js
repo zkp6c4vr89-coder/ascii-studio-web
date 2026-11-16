@@ -18,6 +18,12 @@ export function hexToTint(hex, fallback = [0.12, 0.65, 1]) {
   const top = Math.max(...c, 0.001);
   return c.map((v) => v / top);
 }
+// a saturated colour for hue h (0..1), brightest channel = 1 — used by the "rainbow" colour
+export function hueTint(h) {
+  const k = (n) => (n + h * 6) % 6;
+  const f = (n) => 1 - 0.78 * Math.max(0, Math.min(k(n), 4 - k(n), 1));
+  return [f(5), f(3), f(1)];
+}
 
 // A paint buffer: float colour per cell + optional explicit character.
 export class Grid {
@@ -69,6 +75,7 @@ class Water {
   constructor(opts) { this.setOptions(opts); }
   setOptions(opts = {}) {
     this.opts = { ...WATER_DEFAULTS, ...this.opts, ...opts };
+    this.rainbow = this.opts.color === "rainbow";       // colour drifts across the surface
     this.tint = hexToTint(this.opts.color);
   }
   resize(cols, rows) {
@@ -113,10 +120,11 @@ class Water {
   }
   draw(G, C, t) {
     const { cols, rows, cur } = this;
-    const [tr, tg, tb] = this.tint;
+    let [tr, tg, tb] = this.tint;
     for (let y = 1; y < rows - 1; y++) {
       for (let x = 1; x < cols - 1; x++) {
         const i = y * cols + x;
+        if (this.rainbow) [tr, tg, tb] = hueTint((x / cols * 0.7 + y / rows * 0.3 + t * 0.03) % 1);
         const sx = cur[i + 1] - cur[i - 1], sy = cur[i + cols] - cur[i - cols];
         // calm water stays dark (faint dots); slopes catch the light, crests turn to foam
         const n = ((x * 73856093) ^ (y * 19349663)) & 255;
@@ -269,11 +277,13 @@ class Fireflies {
 // Options: umbrella (a dry circle around the cursor), fluid (the rain flows around the cursor and
 // is swept along when it moves), strength (how strongly it flows, 0.3..2), color (rain colour)
 const RAIN_CHARS = "01lizxtfoeasun{}[]<>?%$#&8B@QWM*+=:;";   // all in the glyph sheet
+const NO_FLOW = [0, 0];
 export const RAIN_DEFAULTS = { umbrella: true, fluid: false, strength: 1, color: "#39e07a" };
 class Rain {
   constructor(opts) { this.setOptions(opts); }
   setOptions(opts = {}) {
     this.opts = { ...RAIN_DEFAULTS, ...this.opts, ...opts };
+    this.rainbow = this.opts.color === "rainbow";       // every column its own slowly shifting colour
     this.tint = hexToTint(this.opts.color, [0.15, 1, 0.4]);
   }
   resize(cols, rows) {
@@ -303,16 +313,34 @@ class Rain {
     const calm = Math.exp(-dt * 4);                           // the cursor's wake dies down
     this.vx *= calm; this.vy *= calm;
   }
-  // Fluid: rain bends around the cursor like water around a stone, and gets swept along by its motion.
+  // Fluid: like dragging a finger through a thin, smooth (laminar) sheet of falling water.
+  // Each stream follows a streamline of ideal flow past a round obstacle (the cursor):
+  // streams start bending just before it, wrap round both sides (running faster, so brighter),
+  // then leave a teardrop-shaped dry wake that slowly closes up downstream.
+  // Returns [sideways offset in cells, extra brightness 0..1].
   flow(x, y) {
-    if (!this.opts.fluid) return 0;
-    const dx = x - this.px, dy = (y - this.py) * ASPECT;
-    const d = Math.hypot(dx, dy), R = 16 * this.opts.strength;
-    if (d > R * 1.6) return 0;
-    let off = 0;
-    if (d < R) off += Math.sign(dx || 1) * (1 - d / R) ** 1.5 * R * 0.75;          // flow around
-    off += clamp(this.vx * 0.05, -12, 12) * Math.max(0, 1 - d / (R * 1.6)) * this.opts.strength;  // swept along
-    return off;
+    if (!this.opts.fluid || this.px < -900) return NO_FLOW;
+    const a = 6 * this.opts.strength;                       // the "finger" radius, in cells
+    const b = x - this.px;                                  // where this stream would be with no finger
+    let yy = (y - this.py) * ASPECT;                        // along the stream (down = positive)
+    let off = 0, glow = 0;
+    // moving the cursor drags nearby water along with it (soft, fades with distance)
+    const drag = clamp(this.vx * 0.035, -9, 9) * Math.exp(-((b * b + yy * yy) / (a * a * 6)));
+    if (yy > 0) yy *= 0.32;                                 // downstream: the wake lingers ~3x longer
+    if (Math.abs(b) < a * 5 && Math.abs(yy) < a * 6) {
+      // find the streamline: solve  X (1 - a^2 / (X^2 + yy^2)) = b  for X outside the obstacle
+      const sgn = b === 0 ? 1 : Math.sign(b), bb = Math.abs(b);
+      let lo = Math.sqrt(Math.max(0, a * a - yy * yy)), hi = bb + a;
+      for (let k = 0; k < 16; k++) {
+        const mid = (lo + hi) / 2;
+        if (mid * (1 - (a * a) / (mid * mid + yy * yy)) < bb) lo = mid; else hi = mid;
+      }
+      const X = (lo + hi) / 2;
+      off = sgn * (X - bb);
+      const r2 = X * X + yy * yy;
+      glow = clamp((a * a) / r2, 0, 1) ** 1.5;              // faster water round the sides catches the light
+    }
+    return [off + drag, glow];
   }
   hidden(x, y) {
     if (this.opts.umbrella && Math.hypot(x - this.px, (y - this.py) * ASPECT) < 9) return 1;   // the umbrella
@@ -324,15 +352,17 @@ class Rain {
   }
   draw(G, C, t) {
     const tick = Math.floor(t * 12);
-    const [tr, tg, tb] = this.tint;
+    let [tr, tg, tb] = this.tint;
     for (const d of this.drops) {
+      if (this.rainbow) [tr, tg, tb] = hueTint((d.x / this.cols + t * 0.04) % 1);
       for (let k = 0; k < d.len; k++) {
         const y = Math.floor(d.y) - k;
         if (y < 0 || y >= this.rows) continue;
-        const x = d.x + this.flow(d.x, y);
+        const [off, glow] = this.flow(d.x, y);
+        const x = d.x + off;
         const h = this.hidden(x, y);
         if (h === 1) continue;
-        const fade = 1 - k / d.len;
+        const fade = Math.min(1, (1 - k / d.len) * (1 + glow * 0.9));
         const ch = RAIN_CHARS[(Math.floor(d.seed + y * 7.3 + (k < 3 ? tick : tick / 4)) % RAIN_CHARS.length + RAIN_CHARS.length) % RAIN_CHARS.length];
         if (h === 2) { G.set(x, y, C[ch], 120 + 135 * tr, 120 + 135 * tg, 120 + 135 * tb); continue; }
         if (k === 0) G.set(x, y, C[ch], 170 + 85 * tr, 170 + 85 * tg, 170 + 85 * tb);   // a bright head
