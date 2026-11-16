@@ -1,0 +1,161 @@
+/* Shared by the extension's New Tab page and the desktop app's live wallpaper + Customise window:
+   colours, the clock, liquid glass, and the option controls. */
+
+:root {
+  color-scheme: dark;
+  --dim: rgba(244, 243, 248, 0.62);
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --accent: #ff6a8a;
+  /* clock, set from the Customise tab */
+  --clock-font: var(--font);
+  --clock-weight: 600;
+  --clock-scale: 1;
+  --clock-color: #f4f3f8;
+}
+
+/* ---- clock ---- */
+.clock {
+  position: fixed; left: 50%; top: 42%; transform: translate(-50%, -50%);
+  text-align: center; pointer-events: none;
+  color: var(--clock-color);
+  font-family: var(--clock-font);
+  text-shadow: 0 0 24px #000, 0 0 8px #000;
+  transition: top 0.4s cubic-bezier(0.22, 1, 0.36, 1), left 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.clock .time {
+  font-size: calc(clamp(56px, 10vw, 136px) * var(--clock-scale));
+  font-weight: var(--clock-weight); line-height: 1; letter-spacing: -0.035em;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.clock .time .ampm { font-size: 0.32em; letter-spacing: 0; margin-left: 0.18em; opacity: 0.8; }
+.clock .time pre {
+  margin: 0; display: inline-block;
+  font: 700 calc(clamp(9px, 1.55vw, 22px) * var(--clock-scale))/1 var(--mono);
+  letter-spacing: 0.04em;
+}
+.clock .date {
+  font-size: calc(clamp(15px, 1.5vw, 20px) * max(0.8, var(--clock-scale) * 0.9));
+  font-weight: 500; letter-spacing: -0.01em; margin-top: 10px;
+  color: color-mix(in srgb, var(--clock-color) 66%, transparent);
+}
+.clock.pos-top-left { left: 48px; top: 44px; transform: none; text-align: left; }
+.clock.pos-bottom-left { left: 48px; top: auto; bottom: 70px; transform: none; text-align: left; }
+.clock.panel { padding: 22px 34px 24px; border-radius: 32px; text-shadow: none; }
+.hide-clock .clock { display: none; }
+/* rainbow clock: a slowly drifting gradient through the digits */
+.clock.rainbow .time, .clock.rainbow .time pre {
+  background: linear-gradient(90deg, #ff5f5f, #ffd23f, #3ee07a, #3fd6ff, #9b7bff, #ff6fae, #ff5f5f) 0 0 / 200% 100%;
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  animation: rainbow 8s linear infinite;
+}
+.clock.rainbow { text-shadow: none; filter: drop-shadow(0 0 14px rgba(0, 0, 0, 0.9)); }
+@keyframes rainbow { to { background-position: -200% 0; } }
+
+/* ---- liquid glass ---- */
+.glass {
+  position: relative; isolation: isolate;
+  color: #f4f3f8;
+  background: rgba(255, 255, 255, 0.08);
+  -webkit-backdrop-filter: blur(12px) saturate(190%) brightness(1.08);
+  backdrop-filter: blur(12px) saturate(190%) brightness(1.08);
+  border: 0;
+  box-shadow:
+    inset 0 1px 0.5px rgba(255, 255, 255, 0.55),
+    inset 0 -1px 0.5px rgba(255, 255, 255, 0.12),
+    inset 0 0 0 0.5px rgba(255, 255, 255, 0.2),
+    0 8px 24px rgba(0, 0, 0, 0.28), 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+.glass::before {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; z-index: -1;
+  background: radial-gradient(120% 90% at 30% 0%, rgba(255, 255, 255, 0.22), transparent 55%);
+}
+.liquid .glass {
+  -webkit-backdrop-filter: url(#liquid) blur(10px) saturate(190%) brightness(1.08);
+  backdrop-filter: url(#liquid) blur(10px) saturate(190%) brightness(1.08);
+}
+/* the glass style would make the clock part of the page flow; keep it floating and snug */
+.clock.panel.glass { position: fixed; color: var(--clock-color); }
+
+/* segmented controls (tabs, choices) */
+.seg {
+  display: flex; flex-wrap: wrap; gap: 2px; padding: 3px; border-radius: 14px;
+  background: rgba(0, 0, 0, 0.3);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.45), inset 0 -0.5px 0 rgba(255, 255, 255, 0.08);
+}
+.seg button {
+  flex: 1 1 auto; appearance: none; border: 0; background: none; cursor: pointer;
+  font: 590 12.5px var(--font); color: var(--dim);
+  padding: 7px 9px; border-radius: 11px; white-space: nowrap;
+  transition: background-color 150ms, color 150ms, transform 120ms;
+}
+.seg button:active { transform: scale(0.95); }
+.seg button.on {
+  color: #fff; background: rgba(255, 255, 255, 0.16);
+  box-shadow: inset 0 1px 0.5px rgba(255, 255, 255, 0.45), 0 2px 6px rgba(0, 0, 0, 0.25);
+}
+
+.group-title { margin: 14px 4px 8px; font: 600 11px var(--font); letter-spacing: 0.06em; text-transform: uppercase; color: var(--dim); }
+.group-title:first-child { margin-top: 2px; }
+.opts { display: grid; gap: 12px; padding: 12px; border-radius: 18px; background: rgba(255, 255, 255, 0.05); box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.1); }
+.opt { display: grid; gap: 7px; }
+.opt.inline { grid-template-columns: 1fr auto; align-items: center; }
+.opt-label { font: 500 13.5px var(--font); color: #f4f3f8; }
+.note { margin: 0; font-size: 12.5px; color: var(--dim); }
+
+.switch {
+  -webkit-appearance: none; appearance: none; position: relative; margin: 0; cursor: pointer;
+  width: 52px; height: 26px; border-radius: 999px;
+  background: rgba(0, 0, 0, 0.3);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.45), inset 0 -0.5px 0 rgba(255, 255, 255, 0.08);
+  transition: background-color 200ms;
+}
+.switch::after {
+  content: ""; position: absolute; top: 2px; left: 2px; width: 30px; height: 22px; border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: inset 0 1px 0.5px #fff, 0 3px 8px rgba(0, 0, 0, 0.3);
+  transition: transform 280ms cubic-bezier(0.3, 1.3, 0.5, 1);
+}
+.switch:checked { background: #34c759; }
+.switch:checked::after { transform: translateX(18px); }
+
+.slider { display: grid; grid-template-columns: 1fr 44px; align-items: center; gap: 10px; }
+.slider output { font: 500 12px var(--mono); color: var(--dim); text-align: right; }
+input[type="range"] { -webkit-appearance: none; appearance: none; width: 100%; height: 26px; margin: 0; background: transparent; --p: 50%; }
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 6px; border-radius: 3px;
+  background: linear-gradient(90deg, var(--accent) 0 var(--p), rgba(0, 0, 0, 0.35) var(--p) 100%);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.4);
+}
+input[type="range"]::-moz-range-track { height: 6px; border-radius: 3px; background: rgba(0, 0, 0, 0.35); }
+input[type="range"]::-moz-range-progress { height: 6px; border-radius: 3px; background: var(--accent); }
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 32px; height: 20px; margin-top: -7px; border-radius: 999px;
+  background: rgba(255, 255, 255, 0.88); box-shadow: inset 0 1px 0.5px #fff, 0 2px 8px rgba(0, 0, 0, 0.35);
+  transition: transform 140ms, background-color 140ms;
+}
+input[type="range"]:active::-webkit-slider-thumb { transform: scale(1.15); background: rgba(255, 255, 255, 0.35); }
+input[type="range"]::-moz-range-thumb { width: 32px; height: 20px; border: 0; border-radius: 999px; background: rgba(255, 255, 255, 0.88); }
+
+.swatches { display: grid; grid-template-columns: repeat(8, 28px); gap: 9px; align-items: center; }
+.sw {
+  width: 28px; height: 28px; border-radius: 50%; border: 0; cursor: pointer; padding: 0;
+  box-shadow: inset 0 1px 0.5px rgba(255, 255, 255, 0.6), inset 0 0 0 0.5px rgba(255, 255, 255, 0.3), 0 2px 6px rgba(0, 0, 0, 0.35);
+  transition: transform 120ms;
+}
+.sw:hover { transform: scale(1.08); }
+.sw.on { outline: 2px solid #fff; outline-offset: 2px; }
+.swatches input[type="color"] {
+  width: 30px; height: 30px; padding: 0; border: 0; border-radius: 50%; cursor: pointer; background: none;
+  -webkit-appearance: none; appearance: none; overflow: hidden;
+}
+.swatches input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+.swatches input[type="color"]::-webkit-color-swatch { border: 2px dashed rgba(255, 255, 255, 0.6); border-radius: 50%; }
+.swatches input[type="color"]::-moz-color-swatch { border: 2px dashed rgba(255, 255, 255, 0.6); border-radius: 50%; }
+.reset {
+  appearance: none; margin-top: 4px; cursor: pointer; border: 0; border-radius: 999px; padding: 9px 14px;
+  font: 590 13px var(--font);
+}
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+@media (prefers-reduced-motion: reduce) { .clock.rainbow .time, .clock.rainbow .time pre { animation: none; } }

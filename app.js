@@ -394,6 +394,7 @@ if (desk) {
   desk.capabilities().then((caps) => {
     if (!caps.liveWallpaper) {
       $("btn-desk-live").hidden = true;
+      $("btn-desk-customise").hidden = true;
       $("desk-note").textContent = "Live wallpapers aren't available on this system; the still image works everywhere.";
     }
   });
@@ -411,6 +412,7 @@ if (desk) {
     const res = await desk.setStillWallpaper(await blob.arrayBuffer());
     say(res.ok ? "Desktop wallpaper set." : `Couldn't set the wallpaper (${res.error}).`);
   };
+  $("btn-desk-customise").onclick = () => desk.openCustomise();
   $("btn-desk-live").onclick = async () => {
     if (!(await storePicture())) return;
     const res = await desk.setLiveWallpaper("custom");
