@@ -9,6 +9,15 @@ const ASPECT = 1.75;
 const BRIGHT = 255;  // "choose a character by brightness"
 const rand = (a, b) => a + Math.random() * (b - a);
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+// "#1fa6ff" -> [r, g, b] in 0..1, scaled so the brightest channel is 1 (the hue, at full strength)
+export function hexToTint(hex, fallback = [0.12, 0.65, 1]) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || "").trim());
+  if (!m) return fallback;
+  const n = parseInt(m[1], 16);
+  const c = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v) => v / 255);
+  const top = Math.max(...c, 0.001);
+  return c.map((v) => v / top);
+}
 
 // A paint buffer: float colour per cell + optional explicit character.
 export class Grid {
@@ -54,7 +63,14 @@ const edgeFor = (dx, dy, C) => {        // a stroke along a direction (screen y 
 
 // ---------------------------------------------------------------- Water
 // A height-field wave simulation: click drops a stone, moving the mouse leaves a wake.
+// Options: color (ripple colour), size (ripple size, 0.5..2), raindrops (the odd drop on its own)
+export const WATER_DEFAULTS = { color: "#1fa6ff", size: 1, raindrops: true };
 class Water {
+  constructor(opts) { this.setOptions(opts); }
+  setOptions(opts = {}) {
+    this.opts = { ...WATER_DEFAULTS, ...this.opts, ...opts };
+    this.tint = hexToTint(this.opts.color);
+  }
   resize(cols, rows) {
     this.cols = cols; this.rows = rows;
     this.cur = new Float32Array(cols * rows);
@@ -63,6 +79,7 @@ class Water {
   }
   drop(x, y, radius, strength) {
     const { cols, rows } = this;
+    radius *= this.opts.size;
     for (let dy = -Math.ceil(radius / ASPECT); dy <= Math.ceil(radius / ASPECT); dy++) {
       for (let dx = -Math.ceil(radius); dx <= Math.ceil(radius); dx++) {
         const d = Math.hypot(dx, dy * ASPECT) / radius;
@@ -79,7 +96,7 @@ class Water {
   }
   step(dt) {
     this.rainClock -= dt;
-    if (this.rainClock < 0) {                       // the odd raindrop
+    if (this.opts.raindrops && this.rainClock < 0) {   // the odd raindrop
       this.rainClock = rand(0.4, 1.6);
       this.drop(rand(2, this.cols - 2), rand(2, this.rows - 2), rand(1.2, 2.2), rand(2, 4));
     }
@@ -96,6 +113,7 @@ class Water {
   }
   draw(G, C, t) {
     const { cols, rows, cur } = this;
+    const [tr, tg, tb] = this.tint;
     for (let y = 1; y < rows - 1; y++) {
       for (let x = 1; x < cols - 1; x++) {
         const i = y * cols + x;
@@ -106,9 +124,10 @@ class Water {
         const slope = (-sx * 0.6 - sy * 0.4) * 0.7;
         const light = clamp(calm + Math.max(0, slope) + Math.abs(cur[i]) * 0.04, 0, 1);
         const foam = clamp((Math.abs(sx) + Math.abs(sy)) * 0.12 - 0.3, 0, 1);
-        G.r[i] = 255 * (0.1 * light + 0.75 * foam);
-        G.g[i] = 255 * (0.55 * light + 0.8 * foam);
-        G.b[i] = 255 * (0.85 * light + 0.75 * foam);
+        // the water takes the chosen colour; foam is a pale version of it
+        G.r[i] = 255 * (0.85 * tr * light + (0.55 + 0.25 * tr) * foam);
+        G.g[i] = 255 * (0.85 * tg * light + (0.55 + 0.25 * tg) * foam);
+        G.b[i] = 255 * (0.85 * tb * light + (0.55 + 0.25 * tb) * foam);
       }
     }
   }
@@ -246,18 +265,32 @@ class Fireflies {
   }
 }
 
-// ---------------------------------------------------------------- Rain (parts around the cursor)
+// ---------------------------------------------------------------- Rain
+// Options: umbrella (a dry circle around the cursor), fluid (the rain flows around the cursor and
+// is swept along when it moves), strength (how strongly it flows, 0.3..2), color (rain colour)
 const RAIN_CHARS = "01lizxtfoeasun{}[]<>?%$#&8B@QWM*+=:;";   // all in the glyph sheet
+export const RAIN_DEFAULTS = { umbrella: true, fluid: false, strength: 1, color: "#39e07a" };
 class Rain {
+  constructor(opts) { this.setOptions(opts); }
+  setOptions(opts = {}) {
+    this.opts = { ...RAIN_DEFAULTS, ...this.opts, ...opts };
+    this.tint = hexToTint(this.opts.color, [0.15, 1, 0.4]);
+  }
   resize(cols, rows) {
     this.cols = cols; this.rows = rows;
     this.drops = [];
     for (let x = 0; x < cols; x++) for (let k = 0; k < 2; k++) this.drops.push(this.newDrop(x, rand(-rows, rows)));
-    this.px = -999; this.py = -999; this.waves = [];
+    this.px = -999; this.py = -999; this.vx = 0; this.vy = 0; this.waves = [];
   }
   newDrop(x, y) { return { x, y, speed: rand(8, 26), len: rand(6, 26), seed: Math.random() * 1000 }; }
   pointer(x, y, kind) {
-    this.px = x; this.py = y;
+    const now = performance.now();
+    if (this.px > -900 && this.pt) {                         // how fast the cursor is moving
+      const dt = Math.max(0.016, (now - this.pt) / 1000);
+      this.vx = this.vx * 0.5 + ((x - this.px) / dt) * 0.5;
+      this.vy = this.vy * 0.5 + ((y - this.py) / dt) * 0.5;
+    }
+    this.px = x; this.py = y; this.pt = now;
     if (kind === "down") this.waves.push({ x, y, r: 0 });
   }
   step(dt) {
@@ -267,10 +300,22 @@ class Rain {
     }
     for (const w of this.waves) w.r += 60 * dt;
     this.waves = this.waves.filter((w) => w.r < Math.max(this.cols, this.rows * ASPECT));
+    const calm = Math.exp(-dt * 4);                           // the cursor's wake dies down
+    this.vx *= calm; this.vy *= calm;
+  }
+  // Fluid: rain bends around the cursor like water around a stone, and gets swept along by its motion.
+  flow(x, y) {
+    if (!this.opts.fluid) return 0;
+    const dx = x - this.px, dy = (y - this.py) * ASPECT;
+    const d = Math.hypot(dx, dy), R = 16 * this.opts.strength;
+    if (d > R * 1.6) return 0;
+    let off = 0;
+    if (d < R) off += Math.sign(dx || 1) * (1 - d / R) ** 1.5 * R * 0.75;          // flow around
+    off += clamp(this.vx * 0.05, -12, 12) * Math.max(0, 1 - d / (R * 1.6)) * this.opts.strength;  // swept along
+    return off;
   }
   hidden(x, y) {
-    const d = Math.hypot(x - this.px, (y - this.py) * ASPECT);
-    if (d < 9) return 1;                                     // the umbrella
+    if (this.opts.umbrella && Math.hypot(x - this.px, (y - this.py) * ASPECT) < 9) return 1;   // the umbrella
     for (const w of this.waves) {
       const dw = Math.hypot(x - w.x, (y - w.y) * ASPECT);
       if (dw < w.r && dw > w.r - 10) return 2;               // the shockwave ring
@@ -279,22 +324,26 @@ class Rain {
   }
   draw(G, C, t) {
     const tick = Math.floor(t * 12);
+    const [tr, tg, tb] = this.tint;
     for (const d of this.drops) {
       for (let k = 0; k < d.len; k++) {
         const y = Math.floor(d.y) - k;
         if (y < 0 || y >= this.rows) continue;
-        const h = this.hidden(d.x, y);
+        const x = d.x + this.flow(d.x, y);
+        const h = this.hidden(x, y);
         if (h === 1) continue;
         const fade = 1 - k / d.len;
         const ch = RAIN_CHARS[(Math.floor(d.seed + y * 7.3 + (k < 3 ? tick : tick / 4)) % RAIN_CHARS.length + RAIN_CHARS.length) % RAIN_CHARS.length];
-        if (h === 2) { G.set(d.x, y, C[ch], 160, 255, 200); continue; }
-        if (k === 0) G.set(d.x, y, C[ch], 215, 255, 225);
-        else G.set(d.x, y, C[ch], 30 * fade, 230 * fade + 25, 90 * fade);
+        if (h === 2) { G.set(x, y, C[ch], 120 + 135 * tr, 120 + 135 * tg, 120 + 135 * tb); continue; }
+        if (k === 0) G.set(x, y, C[ch], 170 + 85 * tr, 170 + 85 * tg, 170 + 85 * tb);   // a bright head
+        else G.set(x, y, C[ch], 25 + 230 * tr * fade, 25 + 230 * tg * fade, 25 + 230 * tb * fade);
       }
     }
     // a faint ring shows where the umbrella is
-    for (let a = 0; a < Math.PI * 2; a += 0.12) {
-      G.add(this.px + Math.cos(a) * 9.5, this.py + Math.sin(a) * 9.5 / ASPECT, 0, 40, 20);
+    if (this.opts.umbrella) {
+      for (let a = 0; a < Math.PI * 2; a += 0.12) {
+        G.add(this.px + Math.cos(a) * 9.5, this.py + Math.sin(a) * 9.5 / ASPECT, 40 * tr * 0.4, 40 * tg, 40 * tb * 0.5);
+      }
     }
   }
 }
@@ -354,9 +403,9 @@ class Stars {
 }
 
 export const SCENES = {
-  water: { name: "Water", hint: "Click to drop a stone. Move to make a wake.", make: () => new Water(), glow: 0.35, style: { contrast: 1 } },
+  water: { name: "Water", hint: "Click to drop a stone. Move to make a wake.", make: (o) => new Water(o), glow: 0.35, style: { contrast: 1 } },
   butterflies: { name: "Butterflies", hint: "They flee your cursor. Click to scare them.", make: () => new Butterflies(), glow: 0.5 },
   fireflies: { name: "Fireflies", hint: "They gather around your cursor. Click to make them flash.", make: () => new Fireflies(), glow: 0.9 },
-  rain: { name: "Rain", hint: "Your cursor is an umbrella. Click for a shockwave.", make: () => new Rain(), glow: 0.6 },
+  rain: { name: "Rain", hint: "Move through the rain. Click for a shockwave.", make: (o) => new Rain(o), glow: 0.6 },
   stars: { name: "Starfield", hint: "Steer with your cursor. Click to jump to hyperspace.", make: () => new Stars(), glow: 0.6 },
 };
