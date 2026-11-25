@@ -418,4 +418,39 @@ if (desk) {
     const res = await desk.setLiveWallpaper("custom");
     say(res.ok ? "Live wallpaper on. Change or stop it from the menu-bar icon." : res.error);
   };
+  // About card: the version, and updates without hunting for the menu-bar icon.
+  if (desk.updates) {
+    $("update-group").hidden = false;
+    let upd = {};
+    const showUpdate = (s) => {
+      upd = s || {};
+      const v = upd.current ? `ASCII Studio ${upd.current}` : "ASCII Studio";
+      const btn = $("btn-upd");
+      btn.disabled = false;
+      btn.classList.toggle("primary", upd.status === "ready" || upd.status === "available");
+      if (upd.status === "ready") {
+        $("upd-text").textContent = `${v}. Version ${upd.version} is downloaded and checked; it installs when you quit.`;
+        btn.textContent = "Restart to update";
+      } else if (upd.status === "available") {
+        $("upd-text").textContent = `${v}. Version ${upd.version} is out.`;
+        btn.textContent = `Download ${upd.version}`;
+      } else if (upd.status === "downloading" || upd.status === "checking") {
+        $("upd-text").textContent = upd.status === "checking" ? `${v}. Checking for updates…` : `${v}. Downloading ${upd.version || "the update"}…`;
+        btn.textContent = "Check for updates";
+        btn.disabled = true;
+      } else {
+        $("upd-text").textContent = upd.status === "uptodate" ? `${v}. You're up to date.`
+          : upd.status === "error" ? `${v}. ${upd.error || "Couldn't check for updates."}` : `${v}.`;
+        btn.textContent = "Check for updates";
+      }
+    };
+    $("btn-upd").onclick = async () => {
+      if (upd.status === "ready") return desk.updates.install();
+      if (upd.status === "available") return desk.updates.download();
+      showUpdate({ ...upd, status: "checking" });
+      showUpdate(await desk.updates.check());
+    };
+    desk.updates.state().then(showUpdate);
+    if (desk.updates.onChange) desk.updates.onChange(showUpdate);
+  }
 }

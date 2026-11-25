@@ -1,6 +1,8 @@
 // Shared "Customise" pieces: the clock and the option controls for scenes and the clock.
 // Used by the browser extension's New Tab page and the desktop app's live wallpaper.
-import { WATER_DEFAULTS, RAIN_DEFAULTS } from "./scenes.js";
+import { WATER_DEFAULTS, RAIN_DEFAULTS, SNOW_DEFAULTS, TREE_DEFAULTS, SCENES } from "./scenes.js";
+import { christmasSeason, countdownText } from "./seasonal.js";
+import { FESTIVE_DEFAULTS, STONE_ORDER, STONES } from "./festive.js";
 
 // ================================================================ palettes
 export const WATER_COLORS = [["#1fa6ff", "Ocean"], ["#2f5bff", "Deep sea"], ["#18d6c3", "Teal"], ["#3ee07a", "Lagoon"],
@@ -9,6 +11,8 @@ export const WATER_COLORS = [["#1fa6ff", "Ocean"], ["#2f5bff", "Deep sea"], ["#1
 export const RAIN_COLORS = [["#39e07a", "Matrix"], ["#9dff5a", "Lime"], ["#3fd6ff", "Cyan"], ["#2f8bff", "Blue"],
   ["#7b6bff", "Indigo"], ["#a98bff", "Violet"], ["#e44bff", "Magenta"], ["#ff6fae", "Pink"], ["#ff5f5f", "Red"],
   ["#ff8a3d", "Orange"], ["#ffb347", "Amber"], ["#ffe66b", "Lemon"], ["#e8ecff", "White"], ["rainbow", "Rainbow"]];
+export const SNOW_COLORS = [["#e8f0ff", "Snow"], ["#bfe3ff", "Ice"], ["#fff1d6", "Warm"], ["#ffd27a", "Gold"],
+  ["#ff8fb3", "Pink"], ["#c3a6ff", "Lilac"], ["#9dff9a", "Mint"], ["rainbow", "Rainbow"]];
 export const CLOCK_COLORS = [["#f4f3f8", "White"], ["#fff1d6", "Cream"], ["#ffd27a", "Gold"], ["#ffb38a", "Peach"],
   ["#ff8fb3", "Pink"], ["#ff5c5c", "Red"], ["#c3a6ff", "Lilac"], ["#9b7bff", "Violet"], ["#8fe3ff", "Ice"],
   ["#5ab8ff", "Sky"], ["#9dff9a", "Mint"], ["#c6ff6b", "Lime"], ["#9a9aa5", "Grey"], ["#1a1a1a", "Ink"], ["rainbow", "Rainbow"]];
@@ -25,7 +29,7 @@ const FONTS = {
 };
 export const CLOCK_DEFAULTS = {
   font: "modern", weight: 600, size: 1, color: "#f4f3f8",
-  hours: "auto", seconds: false, date: "long", position: "center", panel: false,
+  hours: "auto", seconds: false, date: "long", position: "center", panel: false, countdown: true,
 };
 
 // big digits drawn with "#" for the ASCII font (3 wide, 5 tall)
@@ -52,6 +56,9 @@ const DATE_FORMATS = {
 export class Clock {
   constructor(clockEl, timeEl, dateEl, opts = {}) {
     Object.assign(this, { clockEl, timeEl, dateEl });
+    // a third line under the date: the Christmas countdown (only in December / New Year)
+    this.countEl = Object.assign(document.createElement("div"), { className: "countdown" });
+    clockEl.append(this.countEl);
     this.opts = { ...CLOCK_DEFAULTS, ...opts };
     this.apply();
     this.timer = setInterval(() => this.tick(), 1000);
@@ -82,6 +89,9 @@ export class Clock {
     if (ampm) this.timeEl.append(Object.assign(document.createElement("span"), { className: "ampm", textContent: ampm }));
     this.dateEl.hidden = o.date === "hidden";
     if (o.date !== "hidden") this.dateEl.textContent = now.toLocaleDateString([], DATE_FORMATS[o.date] || DATE_FORMATS.long);
+    const count = o.countdown ? countdownText(now) : "";
+    this.countEl.hidden = !count;
+    if (this.countEl.textContent !== count) this.countEl.textContent = count;
   }
 }
 
@@ -163,9 +173,50 @@ export function sceneControls(sceneId, opts, set, { hover = false } = {}) {
       opt("Rain colour", swatches(RAIN_COLORS, o.color, (v) => set({ color: v }))),
     ];
   }
+  if (sceneId === "snow") {
+    const o = { ...SNOW_DEFAULTS, ...opts };
+    return [
+      opt("Snow colour", swatches(SNOW_COLORS, o.color, (v) => set({ color: v }))),
+      opt("How much snow", slider(0.3, 2, 0.1, o.amount, (v) => `${Math.round(v * 100)}%`, (v) => set({ amount: v }))),
+      opt("Snow piles up", toggle(o.pile, (v) => set({ pile: v })), true),
+    ];
+  }
+  if (sceneId === "tree") {
+    const o = { ...TREE_DEFAULTS, ...opts };
+    return [opt("Lights", seg([["warm", "Warm gold"], ["multi", "Colourful"], ["ice", "Icy blue"]], o.lights, (v) => set({ lights: v })))];
+  }
   return [el("p", { className: "note", textContent: hover
-    ? "No extra options for this one yet. Water and Rain have colours and more."
-    : "No extra options for this one yet. Try Water or Rain!" })];
+    ? "No extra options for this one yet. Water, Rain and Snowfall have colours and more."
+    : "No extra options for this one yet. Try Water, Rain or Snowfall!" })];
+}
+
+// Festive extras on top of any wallpaper (shown in December and over New Year).
+export function festiveControls(opts, set) {
+  const o = { ...FESTIVE_DEFAULTS, ...opts };
+  return [
+    opt("Let it snow on every wallpaper", toggle(o.snow, (v) => set({ snow: v })), true),
+    opt("String lights along the top", toggle(o.lights, (v) => set({ lights: v })), true),
+  ];
+}
+
+// Six dots: which hidden stones have been found. Shown only after the first one.
+export function stoneDots(have) {
+  const got = new Set(have);
+  const w = el("div", { className: "stones", title: `${got.size} of 6 found` });
+  for (const id of STONE_ORDER) {
+    const [r, g, b] = STONES[id].col;
+    const d = el("span", { className: got.has(id) ? "on" : "" });
+    d.style.setProperty("--c", `rgb(${r} ${g} ${b})`);
+    w.append(d);
+  }
+  return w;
+}
+
+// Scenes in picker order: festive ones first in season (badged), at the end otherwise.
+export function scenesInOrder(date = new Date()) {
+  const all = Object.entries(SCENES), festive = all.filter(([, s]) => s.season), rest = all.filter(([, s]) => !s.season);
+  const season = christmasSeason(date);
+  return (season ? [...festive, ...rest] : [...rest, ...festive]).map(([id, s]) => ({ id, ...s, badge: season && s.season ? "Seasonal" : "" }));
 }
 
 // Controls for the clock. `clock` is a Clock; `onChange(opts)` saves; `show` = [isShown, setShown].
@@ -183,5 +234,6 @@ export function clockControls(clock, onChange, [shown, setShown]) {
     opt("Date", seg([["long", "Long"], ["short", "Short"], ["numeric", "Numbers"], ["hidden", "Hidden"]], o.date, (v) => set({ date: v }))),
     opt("Position", seg([["center", "Centre"], ["top-left", "Top left"], ["bottom-left", "Bottom left"]], o.position, (v) => set({ position: v }))),
     opt("Glass panel behind it", toggle(o.panel, (v) => set({ panel: v })), true),
+    opt("Christmas countdown (Dec – 1 Jan)", toggle(o.countdown, (v) => set({ countdown: v })), true),
   ];
 }
